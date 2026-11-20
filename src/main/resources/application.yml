@@ -1,0 +1,71 @@
+server:
+  port: ${PUERTO:8098}
+  servlet:
+    context-path: /nexomed
+    encoding:
+      charset: UTF-8
+      force: true
+  error:
+    include-stacktrace: never
+
+spring:
+  application:
+    name: nexomed
+  config:
+    # 1) C:\Despliegue\NexoMed\nexomed.env: servidor de despliegue (Tomcat), sin tocar catalina.properties.
+    # 2) .env de la carpeta desde la que se ejecuta (Eclipse/STS, IntelliJ o java -jar); si existe, gana.
+    # Las variables de entorno del sistema tienen prioridad sobre los archivos. Si no existen, no falla.
+    import:
+      - optional:file:C:/Despliegue/NexoMed/nexomed.env[.properties]
+      - optional:file:.env[.properties]
+  datasource:
+    url: ${BD_URL:jdbc:mariadb://localhost:3306/NexoMed?useUnicode=true&characterEncoding=UTF-8}
+    username: ${BD_USUARIO:app_nexomed}
+    password: ${BD_CONTRASENA:}
+    driver-class-name: org.mariadb.jdbc.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 10000
+      pool-name: nexomed-pool
+      connection-init-sql: "SET time_zone = '-06:00'"
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  jackson:
+    time-zone: America/Mexico_City
+    deserialization:
+      fail-on-null-for-primitives: false
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: alpha
+  api-docs:
+    path: /v3/api-docs
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: never
+
+app:
+  seguridad:
+    jwt-secreto: ${JWT_SECRETO:}
+    # Cierre de sesión por inactividad. El cliente renueva con /api/auth/renovar mientras hay actividad.
+    minutos-sesion: ${MINUTOS_SESION:15}
+    intentos-maximos: 5
+    minutos-bloqueo: 15
+    # Primer usuario (perfil ADMINISTRADOR): se crea solo si la tabla usuario está vacía.
+    usuario-inicial: ${USUARIO_INICIAL:}
+    usuario-inicial-nombre: ${USUARIO_INICIAL_NOMBRE:Administrador del sistema}
+    usuario-inicial-contrasena: ${USUARIO_INICIAL_CONTRASENA:}
+
+logging:
+  level:
+    root: INFO
+    mx.medicalminds.nexomed: INFO

@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 180" role="img" aria-labelledby="title desc">
+  <title id="title">NexoMed — preparando descarga</title>
+  <desc id="desc">Barra de carga indeterminada animada mientras se prepara una descarga.</desc>
+  <style>
+    .sweep { animation: sweep 1.8s ease-in-out infinite; }
+    @keyframes sweep { 0% { transform: translateX(-150px); } 100% { transform: translateX(410px); } }
+    @media (prefers-reduced-motion: reduce) { .sweep { animation-duration: 4s; } }
+  </style>
+  <rect width="560" height="180" rx="24" fill="#F5FAFB"/>
+  <rect x="28" y="34" width="112" height="112" rx="30" fill="#0B3854"/>
+  <path d="M60 105c11 0 14-26 27-26s16 26 29 26" fill="none" stroke="#37C6B4" stroke-width="8" stroke-linecap="round"/>
+  <path d="M87 53v20M77 63h20" stroke="#fff" stroke-width="6" stroke-linecap="round"/>
+  <text x="168" y="65" font-family="Arial, Helvetica, sans-serif" font-size="30" font-weight="700" fill="#0B3854">Nexo<tspan fill="#19A997">Med</tspan></text>
+  <text x="168" y="96" font-family="Arial, Helvetica, sans-serif" font-size="18" fill="#466476">Preparando descarga…</text>
+  <rect x="168" y="117" width="330" height="12" rx="6" fill="#D5E5E9"/>
+  <g clip-path="url(#clip)"><rect class="sweep" x="168" y="117" width="155" height="12" rx="6" fill="#19A997"/></g>
+  <defs><clipPath id="clip"><rect x="168" y="117" width="330" height="12" rx="6"/></clipPath></defs>
+</svg>

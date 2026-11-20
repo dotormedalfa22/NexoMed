@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 180" role="img" aria-labelledby="title desc">
+  <title id="title">NexoMed — consultando</title>
+  <desc id="desc">Indicador circular animado mientras se consultan datos.</desc>
+  <style>
+    .spin { transform-origin: 82px 90px; animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { .spin { animation-duration: 3s; } }
+  </style>
+  <rect width="560" height="180" rx="24" fill="#F5FAFB"/>
+  <rect x="28" y="34" width="112" height="112" rx="30" fill="#0B3854"/>
+  <path d="M60 105c11 0 14-26 27-26s16 26 29 26" fill="none" stroke="#37C6B4" stroke-width="8" stroke-linecap="round"/>
+  <path d="M87 53v20M77 63h20" stroke="#fff" stroke-width="6" stroke-linecap="round"/>
+  <g class="spin" fill="none" stroke-linecap="round">
+    <circle cx="82" cy="90" r="44" stroke="#D5E5E9" stroke-width="5"/>
+    <path d="M82 46a44 44 0 0 1 44 44" stroke="#19A997" stroke-width="5"/>
+  </g>
+  <text x="168" y="74" font-family="Arial, Helvetica, sans-serif" font-size="30" font-weight="700" fill="#0B3854">Nexo<tspan fill="#19A997">Med</tspan></text>
+  <text x="168" y="111" font-family="Arial, Helvetica, sans-serif" font-size="18" fill="#466476">Consultando información…</text>
+</svg>
