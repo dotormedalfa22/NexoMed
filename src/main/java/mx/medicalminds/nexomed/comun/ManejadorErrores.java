@@ -36,6 +36,20 @@ public class ManejadorErrores extends ResponseEntityExceptionHandler {
         return ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_CONTENT, e.getMessage());
     }
 
+    @ExceptionHandler(Excepciones.ConDatos.class)
+    public ProblemDetail conDatos(Excepciones.ConDatos e) {
+        ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.valueOf(e.getEstado()), e.getMessage());
+        e.getDatos().forEach(pd::setProperty);
+        return pd;
+    }
+
+    @Override
+    protected ResponseEntity<Object> handleMaxUploadSizeExceededException(
+            org.springframework.web.multipart.MaxUploadSizeExceededException e, HttpHeaders headers,
+            HttpStatusCode status, WebRequest request) {
+        return ResponseEntity.status(HttpStatus.CONTENT_TOO_LARGE).body(ProblemDetail.forStatusAndDetail(
+                HttpStatus.CONTENT_TOO_LARGE, "El archivo pasa de 10 MB. Divídalo en varios archivos."));
+    }
 
     @ExceptionHandler(DuplicateKeyException.class)
     public ProblemDetail duplicado(DuplicateKeyException e) {

@@ -67,6 +67,11 @@ const ACENTOS = {
   almacen: 'almacén', catalogos: 'catálogos', bitacora: 'bitácora', distribucion: 'distribución',
   administracion: 'administración', recepcion: 'recepción', ordenes: 'órdenes', menu: 'menú', menus: 'menús',
   contrasena: 'contraseña', numerico: 'numérico', preparacion: 'preparación', opcion: 'opción', opciones: 'opciones',
+  catalogo: 'catálogo', regimen: 'régimen', fisica: 'física', fisicas: 'físicas', economica: 'económica',
+  economicas: 'económicas', mexico: 'México', demas: 'demás', agricolas: 'agrícolas', silvicolas: 'silvícolas',
+  tecnologicas: 'tecnológicas', traves: 'través', produccion: 'producción', enajenacion: 'enajenación',
+  adquisicion: 'adquisición', obtencion: 'obtención', incorporacion: 'incorporación', leon: 'León',
+  queretaro: 'Querétaro', potosi: 'Potosí', yucatan: 'Yucatán', michoacan: 'Michoacán',
 };
 function conAcentos(texto) {
   return String(texto ?? '').replace(/[A-Za-zñÑ]+/g, (palabra) => {
@@ -114,7 +119,9 @@ class ErrorApi extends Error {
 async function api(metodo, ruta, cuerpo, { silencioso = false } = {}) {
   const opciones = { method: metodo, headers: {} };
   if (estado.sesion) opciones.headers.Authorization = 'Bearer ' + estado.sesion.token;
-  if (cuerpo !== undefined) {
+  if (cuerpo instanceof FormData) {
+    opciones.body = cuerpo;          // archivo: el navegador pone multipart/form-data con su separador
+  } else if (cuerpo !== undefined) {
     opciones.headers['Content-Type'] = 'application/json';
     opciones.body = JSON.stringify(cuerpo);
   }
@@ -884,6 +891,335 @@ VISTAS.menu = async (c) => {
     h('p', { class: 'subtitulo', text: 'Menús y opciones se muestran en orden alfabético. Las pantallas llegan con cada módulo del sistema; aquí se decide su nombre, en qué menú aparecen, si están activas y qué perfiles las ven.' }),
     h('section', { class: 'tarjeta', 'aria-labelledby': 'titulo-nuevo-menu' }, h('h2', { id: 'titulo-nuevo-menu', text: 'Nuevo menú' }), formNuevo, msgNuevo),
     ...cfg.menus.map(tarjetaMenu));
+};
+
+/* ---------------------------------------------------------------------
+   Catálogos › Catálogo de proveedores
+   Datos de la Constancia de Situación Fiscal (CSF) más el contacto.
+   --------------------------------------------------------------------- */
+const CAMPOS_PROVEEDOR = {
+  fiscales: [
+    ['rfc', 'RFC', { requerido: true, maxlength: '13', autocapitalize: 'characters', spellcheck: 'false', ayuda: '12 caracteres persona moral, 13 persona física' }],
+    ['razonSocial', 'Razón social', { requerido: true, maxlength: '250', ayuda: 'Denominación o razón social, como en la CSF' }],
+    ['regimenCapital', 'Régimen capital', { maxlength: '150', ayuda: 'Ej. SOCIEDAD ANÓNIMA DE CAPITAL VARIABLE' }],
+    ['nombreComercial', 'Nombre comercial', { maxlength: '250' }],
+    ['actividadEconomica', 'Actividad económica principal', { maxlength: '250' }],
+    ['fechaInicioOperaciones', 'Fecha de inicio de operaciones', { tipo: 'date' }],
+    ['idCif', 'idCIF', { maxlength: '20', inputmode: 'numeric' }],
+  ],
+  domicilio: [
+    ['codigoPostal', 'Código postal', { requerido: true, maxlength: '5', inputmode: 'numeric' }],
+    ['tipoVialidad', 'Tipo de vialidad', { maxlength: '50', ayuda: 'Ej. AVENIDA, CALLE' }],
+    ['vialidad', 'Nombre de vialidad', { maxlength: '150' }],
+    ['numeroExterior', 'Número exterior', { maxlength: '30' }],
+    ['numeroInterior', 'Número interior', { maxlength: '30' }],
+    ['colonia', 'Colonia', { maxlength: '150' }],
+    ['localidad', 'Localidad', { maxlength: '150' }],
+    ['municipio', 'Municipio o demarcación territorial', { maxlength: '150' }],
+    ['entreCalle', 'Entre calle', { maxlength: '150' }],
+    ['yCalle', 'Y calle', { maxlength: '150' }],
+  ],
+  contacto: [
+    ['contacto', 'Persona de contacto', { maxlength: '150' }],
+    ['telefono', 'Teléfono', { tipo: 'tel', maxlength: '20', ayuda: '10 dígitos' }],
+    ['correo', 'Correo', { tipo: 'email', maxlength: '150' }],
+  ],
+};
+/** Columna de la base (snake_case) de cada campo del formulario. */
+const columnaProveedor = (campo) => (campo === 'entidad' ? 'entidad_clave' : campo.replace(/[A-Z]/g, (l) => `_${l.toLowerCase()}`));
+
+VISTAS['catalogos/proveedores'] = async (c) => {
+  const cat = await api('GET', '/proveedores/catalogos');
+  const filtro = { q: '', estado: 'activos' };
+  const puedeCargar = opcionesMenu().some((o) => o.ruta === 'carga/proveedores');
+
+  const caja = h('div');                    // formulario de alta o cambios
+  const msgLista = h('p', { class: 'mensaje', role: 'alert', hidden: true });
+  const conteo = h('p', { class: 'conteo', 'aria-live': 'polite' });
+  const cuerpo = h('tbody');
+
+  const buscar = h('input', { id: 'prov-buscar', type: 'search', placeholder: 'RFC, razón social, nombre comercial o municipio', autocomplete: 'off' });
+  const estadoSel = h('select', { id: 'prov-estado' },
+    h('option', { value: 'activos', text: 'Activos' }), h('option', { value: 'inactivos', text: 'Inactivos' }), h('option', { value: 'todos', text: 'Todos' }));
+  const formBuscar = h('form', { class: 'barra-busqueda', role: 'search' },
+    h('div', {}, h('label', { for: 'prov-buscar', text: 'Buscar' }), buscar),
+    h('div', {}, h('label', { for: 'prov-estado', text: 'Estado' }), estadoSel),
+    h('button', { type: 'submit', class: 'boton', text: 'Buscar' }),
+    h('button', { type: 'button', class: 'boton boton--primario', text: 'Nuevo proveedor', onclick: () => abrirForma(null) }));
+  formBuscar.addEventListener('submit', (e) => { e.preventDefault(); filtro.q = buscar.value.trim(); filtro.estado = estadoSel.value; listar(); });
+
+  async function listar() {
+    msgLista.hidden = true;
+    try {
+      const r = await api('GET', `/proveedores?q=${encodeURIComponent(filtro.q)}&estado=${filtro.estado}`);
+      conteo.textContent = (r.total === 1 ? '1 proveedor encontrado' : `${r.total} proveedores encontrados`)
+        + (r.total > r.proveedores.length ? ` (se muestran ${r.proveedores.length}; afine la búsqueda)` : '')
+        + ` · En el catálogo: ${r.activos} activos y ${r.inactivos} inactivos.`;
+      const vacio = filtro.q ? 'Ningún proveedor coincide con la búsqueda.'
+        : `Aún no hay proveedores. Use «Nuevo proveedor»${puedeCargar ? ' o «Cargar proveedores» desde Excel' : ''}.`;
+      cuerpo.replaceChildren(...(r.proveedores.length ? r.proveedores.map(fila)
+        : [h('tr', {}, h('td', { colspan: '7', class: 'vacio', text: vacio }))]));
+    } catch (err) { mensaje(msgLista, textoError(err)); }
+  }
+
+  const fila = (p) => h('tr', { class: p.activo ? null : 'inactivo' },
+    h('td', {}, h('b', { text: p.rfc }), h('small', { text: p.tipo_persona === 'M' ? 'Persona moral' : 'Persona física' })),
+    h('td', {}, p.razon_social, p.nombre_comercial && p.nombre_comercial !== p.razon_social ? h('small', { text: p.nombre_comercial }) : null),
+    h('td', {}, p.regimen_fiscal, h('small', { text: conAcentos(p.regimen_descripcion) })),
+    h('td', { text: p.codigo_postal }),
+    h('td', {}, conAcentos(p.municipio || ''), p.entidad ? h('small', { text: conAcentos(p.entidad) }) : null),
+    h('td', {}, p.contacto || '', p.telefono ? h('small', { text: p.telefono }) : null, p.correo ? h('small', { text: p.correo }) : null),
+    h('td', { class: 'acciones-fila' },
+      h('span', { class: `insignia ${p.activo ? 'insignia--si' : 'insignia--no'}`, text: p.activo ? 'Activo' : 'Inactivo' }), ' ',
+      h('button', { type: 'button', class: 'boton boton--chico', text: 'Editar', 'aria-label': `Editar ${p.razon_social}`, onclick: () => abrirForma(p) }), ' ',
+      h('button', { type: 'button', class: 'boton boton--chico', text: p.activo ? 'Desactivar' : 'Activar',
+        'aria-label': `${p.activo ? 'Desactivar' : 'Activar'} ${p.razon_social}`, onclick: (e) => cambiarActivo(p, e.currentTarget) })));
+
+  async function cambiarActivo(p, boton) {
+    if (p.activo && !confirm(`¿Desactivar a ${p.razon_social} (${p.rfc})? No se borra: deja de ofrecerse en los módulos y puede activarse después.`)) return;
+    boton.disabled = true;
+    try {
+      await api('PUT', `/proveedores/${p.id}/activo`, { activo: !p.activo });
+      avisar(`${p.razon_social} quedó ${p.activo ? 'inactivo' : 'activo'}.`);
+      await listar();
+    } catch (err) { mensaje(msgLista, textoError(err)); boton.disabled = false; }
+  }
+
+  function abrirForma(p) {
+    const editar = !!p;
+    const msg = h('p', { class: 'mensaje', role: 'alert', hidden: true });
+    const valor = (nombre) => {
+      if (!p) return nombre === 'estatusPadron' ? 'ACTIVO' : null;
+      const v = p[columnaProveedor(nombre)];
+      return v === null || v === undefined ? null : String(v);
+    };
+    const campos = (lista) => lista.map(([nombre, etiqueta, opc]) => campo(etiqueta, nombre, { ...opc, value: valor(nombre) }));
+
+    const regimen = h('select', { id: 'prov-regimen', name: 'regimenFiscal', required: true, 'aria-describedby': 'prov-regimen-ayuda' });
+    const entidad = h('select', { id: 'prov-entidad', name: 'entidad' }, h('option', { value: '', text: 'Sin dato' }),
+      cat.entidades.map((x) => h('option', { value: x.clave, text: conAcentos(x.nombre), selected: x.clave === valor('entidad') })));
+    const estatus = h('select', { id: 'prov-estatus', name: 'estatusPadron' },
+      cat.estatus.map((x) => h('option', { value: x, text: x, selected: x === valor('estatusPadron') })));
+    const parecido = h('label', { class: 'casilla', hidden: true },
+      h('input', { type: 'checkbox', name: 'aunqueParecido' }), 'Es un proveedor distinto: guardarlo de todos modos');
+
+    const fiscales = campos(CAMPOS_PROVEEDOR.fiscales);
+    const domicilio = campos(CAMPOS_PROVEEDOR.domicilio);
+    const forma = h('form', { novalidate: true, 'aria-labelledby': 'titulo-forma-prov' },
+      h('h2', { id: 'titulo-forma-prov', text: editar ? `Editar proveedor ${p.rfc}` : 'Nuevo proveedor' }),
+      h('p', { class: 'ayuda', text: 'Copie los datos de la Constancia de Situación Fiscal del proveedor. Obligatorios: RFC, razón social, régimen fiscal y código postal.' }),
+      h('fieldset', { class: 'seccion-forma' }, h('legend', { text: 'Datos de identificación (CSF)' }),
+        h('div', { class: 'rejilla' }, fiscales.slice(0, 4),
+          h('div', {}, h('label', { for: 'prov-regimen', text: 'Régimen fiscal' }), regimen,
+            h('p', { class: 'ayuda', id: 'prov-regimen-ayuda', text: 'Se filtra según el RFC: persona moral o física.' })),
+          fiscales.slice(4),
+          h('div', {}, h('label', { for: 'prov-estatus', text: 'Estatus en el padrón' }), estatus))),
+      h('fieldset', { class: 'seccion-forma' }, h('legend', { text: 'Domicilio fiscal' }),
+        h('div', { class: 'rejilla' }, domicilio.slice(0, 8),
+          h('div', {}, h('label', { for: 'prov-entidad', text: 'Entidad federativa' }), entidad),
+          domicilio.slice(8))),
+      h('fieldset', { class: 'seccion-forma' }, h('legend', { text: 'Contacto' }),
+        h('div', { class: 'rejilla' }, campos(CAMPOS_PROVEEDOR.contacto))),
+      msg, parecido,
+      h('div', { class: 'acciones' },
+        h('button', { type: 'button', class: 'boton', text: 'Cancelar', onclick: () => { caja.replaceChildren(); buscar.focus(); } }),
+        botonEnviar(editar ? 'Guardar cambios' : 'Dar de alta')));
+
+    const pintarRegimenes = () => {
+      const rfc = (forma.rfc.value || '').trim();
+      const tipo = rfc.length === 12 ? 'moral' : rfc.length === 13 ? 'fisica' : null;
+      const actual = regimen.value || valor('regimenFiscal');
+      regimen.replaceChildren(h('option', { value: '', text: 'Seleccione…' }),
+        ...cat.regimenes.filter((r) => !tipo || (tipo === 'moral' ? r.persona_moral : r.persona_fisica))
+          .map((r) => h('option', { value: r.clave, text: `${r.clave} · ${conAcentos(r.descripcion)}`, selected: r.clave === actual })));
+    };
+    pintarRegimenes();
+    forma.rfc.addEventListener('input', () => { forma.rfc.value = forma.rfc.value.toUpperCase(); pintarRegimenes(); });
+
+    forma.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      msg.hidden = true;
+      const datos = {};
+      for (const lista of Object.values(CAMPOS_PROVEEDOR)) for (const [n] of lista) datos[n] = forma[n].value.trim() || null;
+      datos.regimenFiscal = regimen.value || null;
+      datos.entidad = entidad.value || null;
+      datos.estatusPadron = estatus.value;
+      const faltan = [];
+      if (!datos.rfc) faltan.push('RFC');
+      if (!datos.razonSocial) faltan.push('razón social');
+      if (!datos.regimenFiscal) faltan.push('régimen fiscal');
+      if (!datos.codigoPostal) faltan.push('código postal');
+      if (faltan.length) { mensaje(msg, `Falta: ${faltan.join(', ')}.`); return; }
+      const aunque = !parecido.hidden && forma.aunqueParecido.checked;
+      const ruta = `/proveedores${editar ? `/${p.id}` : ''}${aunque ? '?aunqueParecido=true' : ''}`;
+      try {
+        await conBoton(forma.querySelector('[type=submit]'), 'Guardando…', () => api(editar ? 'PUT' : 'POST', ruta, datos, { silencioso: true }));
+        const rfc = datos.rfc.toUpperCase();
+        caja.replaceChildren();
+        avisar(editar ? `Se guardaron los cambios de ${rfc}.` : `Se dio de alta el proveedor ${rfc}.`);
+        if (!editar) { filtro.q = rfc; buscar.value = rfc; filtro.estado = 'activos'; estadoSel.value = 'activos'; }
+        await listar();
+      } catch (err) {
+        if (err.status === 409 && err.cuerpo.parecido) {
+          parecido.hidden = false;
+          mensaje(msg, `${err.message} Si de verdad es otro proveedor, marque la casilla y vuelva a guardar.`, 'alerta');
+        } else {
+          mensaje(msg, textoError(err));
+        }
+      }
+    });
+    caja.replaceChildren(h('section', { class: 'tarjeta' }, forma));
+    caja.scrollIntoView({ block: 'start' });
+    forma.rfc.focus();
+  }
+
+  c.append(
+    h('h1', { text: 'Catálogo de proveedores' }),
+    h('p', { class: 'subtitulo' }, 'Proveedores con los datos de su Constancia de Situación Fiscal. Un RFC solo se registra una vez.',
+      puedeCargar ? [' Para dar de alta muchos a la vez use ', h('a', { href: '#carga/proveedores', text: 'Cargar proveedores' }), '.'] : null),
+    h('section', { class: 'tarjeta' }, formBuscar, conteo),
+    caja,
+    msgLista,
+    h('div', { class: 'tabla-caja' }, h('table', { class: 'tabla' },
+      h('caption', { class: 'solo-lector', text: 'Proveedores' }),
+      h('thead', {}, h('tr', {}, ['RFC', 'Razón social', 'Régimen fiscal', 'C.P.', 'Municipio', 'Contacto', ''].map((t) => h('th', { scope: 'col', text: t })))),
+      cuerpo)));
+  await listar();
+  buscar.focus();
+};
+
+/* ---------------------------------------------------------------------
+   Carga de archivos › Cargar proveedores (modelo de las cargas de SIALSS MDF)
+   1. Archivo → Revisar (todo el archivo, sin guardar) → 2. Confirmar con la contraseña (3 intentos).
+   Lo repetido (mismo RFC, razón social igual o parecida) se omite con aviso y se carga lo demás.
+   --------------------------------------------------------------------- */
+VISTAS['carga/proveedores'] = (c) => {
+  const URL_CARGA = '/cargas/proveedores';
+  const COLUMNAS = ['Renglón', 'RFC', 'Razón social', 'Régimen fiscal', 'C.P.', 'Municipio', 'Entidad', 'Teléfono', 'Correo'];
+  let token = null;
+  const cuantos = (n, uno, varios) => `${n} ${n === 1 ? uno : varios}`;
+
+  const archivo = h('input', { type: 'file', id: 'ca-archivo', accept: '.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel' });
+  const estadoCarga = h('p', { class: 'carga__estado', role: 'status', 'aria-live': 'polite' });
+  const errores = h('ul', { class: 'carga__errores', hidden: true, 'aria-label': 'Errores del archivo' });
+  const omitidosLista = h('ul');
+  const omitidosTitulo = h('summary');
+  const omitidos = h('details', { class: 'carga__omitidos', hidden: true }, omitidosTitulo, omitidosLista);
+  const resumen = h('span', { class: 'carga__resumen' });
+  const revisar = botonEnviar('Revisar archivo');
+  revisar.type = 'button';
+  const cancelar = h('button', { type: 'button', class: 'boton', text: 'Cancelar carga', hidden: true });
+  const aplicar = botonEnviar('Confirmar carga');
+  const confirmar = h('form', { class: 'carga__confirmar', hidden: true, novalidate: true },
+    h('fieldset', {}, h('legend', { text: '2. Para confirmar, escriba su contraseña' }),
+      h('div', { class: 'carga__confirmar-fila' },
+        campoSecreto('Contraseña', 'contrasena', { autocomplete: 'current-password' }), aplicar, resumen)));
+  const muestra = h('tbody');
+
+  function mostrarEstado(texto, tipo) {
+    estadoCarga.textContent = texto || '';
+    estadoCarga.className = `carga__estado${tipo ? ` carga__estado--${tipo}` : ''}`;
+  }
+  function pintarLista(ul, lista, total, mas) {
+    ul.replaceChildren(...lista.map((t) => h('li', { text: t })),
+      ...(total > lista.length ? [h('li', { text: `… y ${cuantos(total - lista.length, mas[0], mas[1])}.` })] : []));
+  }
+  function pintarMuestra(filas) {
+    muestra.replaceChildren(...(filas.length
+      ? filas.map((f) => h('tr', {}, f.map((v, i) => h('td', { text: v == null ? '' : (i === 3 || i === 6 ? conAcentos(v) : String(v)) }))))
+      : [h('tr', {}, h('td', { colspan: String(COLUMNAS.length), class: 'vacio', text: 'Suba un archivo y pulse «Revisar archivo».' }))]));
+  }
+  function reiniciar() {
+    token = null;
+    confirmar.hidden = true;
+    cancelar.hidden = true;
+    confirmar.contrasena.value = '';
+  }
+
+  revisar.addEventListener('click', async () => {
+    const f = archivo.files[0];
+    if (!f) { mostrarEstado('Elija el archivo de Excel.', 'error'); archivo.focus(); return; }
+    if (f.size === 0) { mostrarEstado(`El archivo ${f.name} está vacío (0 bytes). No se cargó nada.`, 'error'); return; }
+    reiniciar();
+    errores.hidden = true;
+    omitidos.hidden = true;
+    pintarMuestra([]);
+    mostrarEstado('Revisando el archivo…');
+    const datos = new FormData();
+    datos.append('archivo', f);
+    try {
+      const r = await conBoton(revisar, 'Revisando…', () => api('POST', `${URL_CARGA}/revisar`, datos));
+      pintarLista(errores, r.errores, r.totalErrores, ['error más', 'errores más']);
+      errores.hidden = !r.errores.length;
+      omitidosTitulo.textContent = `${cuantos(r.totalOmitidos, 'renglón repetido se omite', 'renglones repetidos se omiten')}: ya están en el catálogo o se repiten en el archivo (no se cargan).`;
+      pintarLista(omitidosLista, r.omitidos, r.totalOmitidos, ['repetido más', 'repetidos más']);
+      omitidos.hidden = !r.totalOmitidos;
+      pintarMuestra(r.muestra);
+      if (r.valida) {
+        token = r.token;
+        resumen.textContent = r.resumen;
+        confirmar.hidden = false;
+        cancelar.hidden = false;
+        mostrarEstado(`El archivo está correcto: ${r.resumen} Confirme con su contraseña para guardar.`, 'ok');
+        confirmar.contrasena.focus();
+      } else if (r.sinNuevos) {
+        mostrarEstado(`No hay proveedores nuevos: ${r.leidos === 1 ? 'el renglón ya está registrado o se repite' : `los ${r.leidos} renglones ya están registrados o se repiten`}. No hay nada que guardar.`, 'aviso');
+      } else {
+        mostrarEstado(`El archivo tiene ${cuantos(r.totalErrores, 'error', 'errores')}. Corríjalo y vuelva a subirlo; no se guardó nada.`, 'error');
+      }
+    } catch (err) { mostrarEstado(textoError(err), 'error'); }
+  });
+
+  confirmar.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const contrasena = confirmar.contrasena.value;
+    if (!contrasena) { mostrarEstado('Escriba su contraseña para confirmar.', 'error'); confirmar.contrasena.focus(); return; }
+    confirmar.contrasena.value = '';
+    mostrarEstado('Guardando la carga…');
+    try {
+      const r = await conBoton(aplicar, 'Guardando…', () => api('POST', `${URL_CARGA}/confirmar`, { token, contrasena }));
+      reiniciar();
+      archivo.value = '';
+      mostrarEstado(r.mensaje, 'ok');
+      avisar(r.mensaje);
+    } catch (err) {
+      if (err.cuerpo && err.cuerpo.cancelada) reiniciar();
+      mostrarEstado(textoError(err), 'error');
+      if (!confirmar.hidden) confirmar.contrasena.focus();
+    }
+  });
+
+  cancelar.addEventListener('click', () => {
+    api('POST', `${URL_CARGA}/cancelar`, undefined, { silencioso: true }).catch(() => { /* nada que deshacer */ });
+    reiniciar();
+    mostrarEstado('Carga cancelada; no se guardó nada.');
+  });
+
+  pintarMuestra([]);
+  c.append(
+    h('h1', { text: 'Cargar proveedores' }),
+    h('p', { class: 'subtitulo' }, 'Alta de proveedores desde un Excel con los datos de su Constancia de Situación Fiscal. Primero se revisa todo el archivo sin guardar nada; si no hay errores, confirma con su contraseña y se guarda a nombre de ',
+      h('b', { text: estado.perfil.usuario }), '.'),
+    h('section', { class: 'tarjeta carga' },
+      h('fieldset', {}, h('legend', { text: '1. Archivo' }),
+        h('div', { class: 'carga__fila' },
+          h('div', {}, h('label', { for: 'ca-archivo', text: 'Excel (.xlsx o .xls)' }), archivo),
+          h('div', { class: 'carga__plantilla' },
+            h('p', { class: 'ayuda', text: 'La plantilla trae las columnas de la CSF, un renglón de ejemplo, los regímenes fiscales del SAT, las entidades e instrucciones.' }),
+            h('button', { type: 'button', class: 'boton', text: 'Descargar plantilla', onclick: async (e) => {
+              const b = e.currentTarget;
+              b.disabled = true;
+              try { await descargar(`${URL_CARGA}/plantilla`, 'plantilla_proveedores.xlsx'); } catch (err) { mostrarEstado(textoError(err), 'error'); } finally { b.disabled = false; }
+            } })))),
+      h('div', { class: 'acciones acciones--izq' }, revisar, cancelar),
+      estadoCarga, errores, omitidos, confirmar),
+    h('section', { class: 'tarjeta' },
+      h('h2', { text: 'Vista previa' }),
+      h('p', { class: 'ayuda', text: 'Los proveedores nuevos que se cargarán (se muestran hasta 200).' }),
+      h('div', { class: 'tabla-caja', style: 'margin-top:10px' }, h('table', { class: 'tabla' },
+        h('caption', { class: 'solo-lector', text: 'Proveedores nuevos del archivo' }),
+        h('thead', {}, h('tr', {}, COLUMNAS.map((t) => h('th', { scope: 'col', text: t })))),
+        muestra))));
 };
 
 /* Recarga de la página: si el token sigue vigente, continúa la sesión. */
